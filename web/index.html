@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Painel Oracle</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topo">
+    <div class="marca">
+      <span class="logo" aria-hidden="true"></span>
+      <div>
+        <h1>Painel Oracle</h1>
+        <p class="sub">Estatísticas atuais do banco · Oracle Free 23ai + ORDS</p>
+      </div>
+    </div>
+
+    <div class="controles">
+      <span id="api-status" class="pilula pilula-neutra" title="Resultado do GET /health">API: verificando…</span>
+      <span id="ultima-atualizacao" class="hora">—</span>
+      <label class="campo">
+        <span>Atualizar a cada</span>
+        <select id="intervalo">
+          <option value="5">5 s</option>
+          <option value="10" selected>10 s</option>
+          <option value="30">30 s</option>
+        </select>
+      </label>
+      <button id="btn-pausar" class="btn" type="button">Pausar</button>
+      <button id="btn-atualizar" class="btn btn-primario" type="button">Atualizar agora</button>
+    </div>
+  </header>
+
+  <div id="alerta-bloqueio" class="alerta" hidden>
+    <strong id="alerta-texto"></strong>
+    <a href="#painel-bloqueios">Ver bloqueios ↓</a>
+  </div>
+
+  <main>
+    <!-- Identificação -------------------------------------------------- -->
+    <section class="faixa" aria-label="Instância e banco">
+      <article class="card-info">
+        <h2>Instância</h2>
+        <p class="valor" id="inst-nome">—</p>
+        <p class="detalhe"><span id="inst-status" class="pilula pilula-neutra">—</span> <span id="inst-banco-status"></span></p>
+        <p class="fonte">V$INSTANCE</p>
+      </article>
+      <article class="card-info">
+        <h2>Banco</h2>
+        <p class="valor" id="db-nome">—</p>
+        <p class="detalhe" id="db-detalhe">—</p>
+        <p class="fonte">V$DATABASE</p>
+      </article>
+      <article class="card-info">
+        <h2>Container atual</h2>
+        <p class="valor" id="db-container">—</p>
+        <p class="detalhe">PDB onde o ORDS está conectado</p>
+        <p class="fonte">SYS_CONTEXT('USERENV','CON_NAME')</p>
+      </article>
+      <article class="card-info">
+        <h2>No ar há</h2>
+        <p class="valor" id="inst-uptime">—</p>
+        <p class="detalhe" id="inst-versao">—</p>
+        <p class="fonte">V$INSTANCE.STARTUP_TIME</p>
+      </article>
+    </section>
+
+    <!-- Indicadores ---------------------------------------------------- -->
+    <section class="kpis" aria-label="Indicadores">
+      <article class="kpi">
+        <h2>Sessões de usuário</h2>
+        <p class="numero" id="kpi-sessoes">—</p>
+        <p class="dica">Conexões abertas (ativas + ociosas)</p>
+      </article>
+      <article class="kpi">
+        <h2>Ativas agora</h2>
+        <p class="numero" id="kpi-ativas">—</p>
+        <p class="dica">Executando algo neste instante</p>
+      </article>
+      <article class="kpi" id="kpi-bloqueadas-card">
+        <h2>Bloqueadas</h2>
+        <p class="numero" id="kpi-bloqueadas">—</p>
+        <p class="dica">Esperando lock de outra sessão</p>
+      </article>
+      <article class="kpi">
+        <h2>Sessões ativas médias</h2>
+        <p class="numero" id="kpi-aas">—</p>
+        <p class="dica">AAS do último minuto · compare com nº de CPUs</p>
+      </article>
+      <article class="kpi">
+        <h2>CPU do host</h2>
+        <p class="numero" id="kpi-cpu">—</p>
+        <p class="dica">% de uso da máquina (último minuto)</p>
+      </article>
+      <article class="kpi">
+        <h2>Execuções / s</h2>
+        <p class="numero" id="kpi-exec">—</p>
+        <p class="dica">Comandos SQL executados por segundo</p>
+      </article>
+    </section>
+
+    <!-- Carga ---------------------------------------------------------- -->
+    <section class="painel carga" aria-labelledby="t-carga">
+      <header class="painel-topo">
+        <h2 id="t-carga">Carga de laboratório</h2>
+        <span class="fonte">CARGA_LAB.PKG_CARGA · jobs DBMS_SCHEDULER</span>
+      </header>
+      <p class="texto-carga">Dispara sessões dentro do Oracle para o painel ter o que mostrar: consultas com full scan, laço de CPU e duas sessões disputando a mesma linha (bloqueio).</p>
+      <div class="carga-linha">
+        <label class="campo">
+          <span>Perfil</span>
+          <select id="carga-perfil">
+            <option value="LEVE">Leve (5 sessões)</option>
+            <option value="MEDIA" selected>Média (8 sessões)</option>
+            <option value="PESADA">Pesada (12 sessões)</option>
+          </select>
+        </label>
+        <label class="campo">
+          <span>Duração</span>
+          <select id="carga-minutos">
+            <option value="2">2 min</option>
+            <option value="3" selected>3 min</option>
+            <option value="5">5 min</option>
+            <option value="10">10 min</option>
+          </select>
+        </label>
+        <button id="btn-carga-iniciar" class="btn btn-primario" type="button">Gerar carga</button>
+        <button id="btn-carga-parar" class="btn" type="button">Parar</button>
+        <div class="carga-status" id="carga-status">—</div>
+      </div>
+    </section>
+
+    <!-- Histórico ------------------------------------------------------ -->
+    <section class="painel largo" aria-labelledby="t-historico">
+      <header class="painel-topo">
+        <h2 id="t-historico">Linha do tempo</h2>
+        <span class="fonte">METRICAS_HIST · job DBMS_SCHEDULER a cada 15 s</span>
+        <label class="campo campo-direita">
+          <span>Janela</span>
+          <select id="janela-historico">
+            <option value="15">15 min</option>
+            <option value="30" selected>30 min</option>
+            <option value="60">1 hora</option>
+          </select>
+        </label>
+      </header>
+      <details class="explica">
+        <summary>Como ler</summary>
+        <p>As views V$ só mostram o momento. Para ter histórico, um job do próprio Oracle grava uma "foto" a cada 15 segundos.
+        <b>Sessões ativas</b> subindo junto com <b>AAS</b> indica mais trabalho no banco. Se <b>bloqueadas</b> aparecer, há sessões paradas esperando lock.</p>
+      </details>
+      <div class="grafico-caixa">
+        <canvas id="grafico" height="220" aria-label="Gráfico da linha do tempo"></canvas>
+        <p class="vazio" id="grafico-vazio" hidden>Ainda não há pontos suficientes. O job grava um a cada 15 s.</p>
+      </div>
+      <ul class="legenda" id="legenda"></ul>
+    </section>
+
+    <div class="grade">
+      <!-- Esperas -------------------------------------------------------- -->
+      <section class="painel" aria-labelledby="t-esperas">
+        <header class="painel-topo">
+          <h2 id="t-esperas">Esperas (waits)</h2>
+          <div class="abas" role="tablist">
+            <button class="aba ativa" type="button" role="tab" data-aba="agora">Agora</button>
+            <button class="aba" type="button" role="tab" data-aba="acumulados">Desde o startup</button>
+          </div>
+        </header>
+        <details class="explica">
+          <summary>Como ler</summary>
+          <p><b>Agora</b> (V$SESSION): o que as sessões ativas estão esperando neste instante. "Em CPU" = trabalhando, não esperando.
+          <b>Desde o startup</b> (V$SYSTEM_EVENT): tempo total acumulado por evento. É a história do banco, não o momento.
+          Exemplos: <code>db file sequential read</code> = leitura de disco por índice; <code>enq: TX - row lock contention</code> = esperando lock de linha; <code>log file sync</code> = esperando o COMMIT gravar no redo.</p>
+        </details>
+        <div id="tabela-esperas" class="tabela-caixa"></div>
+      </section>
+
+      <!-- Sessões ativas ------------------------------------------------- -->
+      <section class="painel" aria-labelledby="t-ativas">
+        <header class="painel-topo">
+          <h2 id="t-ativas">Sessões ativas agora</h2>
+          <span class="fonte">V$SESSION</span>
+        </header>
+        <details class="explica">
+          <summary>Como ler</summary>
+          <p>Cada linha é uma sessão executando algo. <b>Segundos</b> = há quanto tempo a chamada atual começou (LAST_CALL_ET).
+          <b>Módulo</b> ajuda a identificar a origem: a carga de laboratório marca CONSULTA, CPU, LOCK_DONO e LOCK_FILA.</p>
+        </details>
+        <div id="tabela-ativas" class="tabela-caixa"></div>
+      </section>
+
+      <!-- Bloqueios ------------------------------------------------------ -->
+      <section class="painel" id="painel-bloqueios" aria-labelledby="t-bloqueios">
+        <header class="painel-topo">
+          <h2 id="t-bloqueios">Bloqueios</h2>
+          <span class="fonte">V$SESSION.BLOCKING_SESSION</span>
+        </header>
+        <details class="explica">
+          <summary>Como ler</summary>
+          <p>Mostra quem está parado esperando quem. Normalmente o bloqueador fez um UPDATE e ainda não deu COMMIT.
+          Para destravar: o bloqueador faz COMMIT/ROLLBACK ou o DBA encerra a sessão com
+          <code>ALTER SYSTEM KILL SESSION 'sid,serial#'</code>.</p>
+        </details>
+        <div id="tabela-bloqueios" class="tabela-caixa"></div>
+      </section>
+
+      <!-- Sessões por usuário -------------------------------------------- -->
+      <section class="painel" aria-labelledby="t-sessoes">
+        <header class="painel-topo">
+          <h2 id="t-sessoes">Sessões por usuário</h2>
+          <span class="fonte">V$SESSION</span>
+        </header>
+        <details class="explica">
+          <summary>Como ler</summary>
+          <p><b>ACTIVE</b> = executando agora; <b>INACTIVE</b> = conectada, mas ociosa (por exemplo, o pool de conexões do ORDS).
+          Muitas INACTIVE não pesam no banco; muitas ACTIVE indicam fila de trabalho.</p>
+        </details>
+        <div id="tabela-sessoes" class="tabela-caixa"></div>
+      </section>
+
+      <!-- Top SQL -------------------------------------------------------- -->
+      <section class="painel largo" aria-labelledby="t-sql">
+        <header class="painel-topo">
+          <h2 id="t-sql">SQLs mais custosos</h2>
+          <span class="fonte">V$SQLAREA · ordenado por tempo total</span>
+        </header>
+        <details class="explica">
+          <summary>Como ler</summary>
+          <p><b>Tempo total</b> = soma de todas as execuções. Um SQL rápido executado milhares de vezes pode pesar mais que um lento executado uma vez, por isso olhamos também <b>ms/execução</b>.
+          <b>Leituras lógicas</b> (buffer gets) = blocos lidos da memória; valores altos costumam indicar full scan ou falta de índice. Clique no SQL_ID para ver o texto.</p>
+        </details>
+        <div id="tabela-sql" class="tabela-caixa"></div>
+      </section>
+
+      <!-- Tablespaces ---------------------------------------------------- -->
+      <section class="painel" aria-labelledby="t-ts">
+        <header class="painel-topo">
+          <h2 id="t-ts">Tablespaces</h2>
+          <span class="fonte">DBA_TABLESPACE_USAGE_METRICS</span>
+        </header>
+        <details class="explica">
+          <summary>Como ler</summary>
+          <p>Percentual em relação ao tamanho <b>máximo</b> (já contando o autoextend). Acima de 85% merece atenção: quando enche, inserts falham com ORA-01653.</p>
+        </details>
+        <div id="lista-tablespaces" class="tabela-caixa"></div>
+      </section>
+
+      <!-- Estatísticas gerais -------------------------------------------- -->
+      <section class="painel" aria-labelledby="t-metricas">
+        <header class="painel-topo">
+          <h2 id="t-metricas">Estatísticas gerais</h2>
+          <span class="fonte">V$SYSMETRIC · último minuto</span>
+        </header>
+        <details class="explica">
+          <summary>Como ler</summary>
+          <p>Médias calculadas pelo próprio Oracle a cada 60 s. <b>Database Wait Time Ratio</b> alto = o banco passa mais tempo esperando do que usando CPU.
+          <b>Buffer Cache Hit Ratio</b> = % de leituras atendidas pela memória.</p>
+        </details>
+        <div id="tabela-metricas" class="tabela-caixa"></div>
+      </section>
+
+    </div>
+  </main>
+
+  <dialog id="dialogo-sql">
+    <form method="dialog">
+      <header class="painel-topo">
+        <h2>SQL <span id="dialogo-sql-id"></span></h2>
+        <button class="btn" value="fechar">Fechar</button>
+      </header>
+      <pre id="dialogo-sql-texto"></pre>
+      <p class="fonte">Plano de execução: <code id="dialogo-sql-xplan"></code></p>
+    </form>
+  </dialog>
+
+  <footer class="rodape">
+    API: <code id="api-base"></code>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

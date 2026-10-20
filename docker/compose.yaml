@@ -1,0 +1,74 @@
+# Painel Oracle - Oracle Free 23ai + ORDS com Docker Compose
+#
+# Executar a partir desta pasta:
+#   cd docker
+#   docker login container-registry.oracle.com   # se o registry pedir login
+#   docker compose up -d
+#
+# Acompanhar:
+#   docker compose ps
+#   docker compose logs -f oracle
+#   docker compose logs -f ords
+#
+# Derrubar SEM apagar dados:   docker compose down
+# Derrubar APAGANDO os dados:  docker compose down -v
+#
+# Conexão pelo DBeaver / SQL Developer:
+#   Host: localhost | Porta: 1522 | Service Name: FREEPDB1
+#   Usuário: system | Senha: valor de ORACLE_PWD (padrão OraclePwd123)
+#
+# Senhas abaixo são de LABORATÓRIO. Para trocar, crie um arquivo .env
+# nesta pasta (veja .env.example).
+
+name: painel-oracle
+
+services:
+  oracle:
+    container_name: painel-oracle-db
+    image: container-registry.oracle.com/database/free:latest
+    ports:
+      - "${ORACLE_HOST_PORT:-1522}:1521"
+    cap_add:
+      - SYS_NICE
+    environment:
+      ORACLE_PWD: ${ORACLE_PWD:-OraclePwd123}
+      ORACLE_PDB: FREEPDB1
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+      # Scripts SQL do projeto disponíveis dentro do container (somente leitura)
+      - ../sql:/opt/painel/sql:ro
+    healthcheck:
+      # Script que já vem na imagem oficial e responde "healthy" quando o banco abre
+      test: ["CMD", "/opt/oracle/checkDBStatus.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 5m
+
+  ords:
+    container_name: painel-oracle-ords
+    image: container-registry.oracle.com/database/ords:latest
+    depends_on:
+      oracle:
+        condition: service_healthy
+    ports:
+      - "${ORDS_HOST_PORT:-8181}:8080"
+    environment:
+      # Dentro da rede do Compose o ORDS enxerga o banco pelo nome do serviço
+      DBHOST: oracle
+      DBPORT: 1521
+      DBSERVICENAME: FREEPDB1
+      ORACLE_PWD: ${ORACLE_PWD:-OraclePwd123}
+      # Não precisamos do APEX: deixa a primeira instalação bem mais rápida
+      IGNOREAPEX: "TRUE"
+    volumes:
+      - ords-config:/etc/ords/config
+      # O próprio ORDS serve o dashboard (pasta web) em /painel/
+      # -> http://localhost:8181/painel/index.html  (mesma origem da API, sem CORS)
+      - ../web:/etc/ords/config/global/standalone/doc_root/painel:ro
+
+volumes:
+  oracle-data:
+    name: painel-oracle-data
+  ords-config:
+    name: painel-oracle-ords-config
