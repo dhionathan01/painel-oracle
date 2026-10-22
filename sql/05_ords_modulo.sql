@@ -9,7 +9,7 @@
 --   GET  /health                 status da API e horário do banco
 --   GET  /stats/instancia        instância, banco e container      (1 linha)
 --   GET  /stats/resumo           números dos cards                  (1 linha)
---   GET  /stats/metricas         estatísticas gerais (V$SYSMETRIC)
+--   GET  /stats/metricas         estatísticas gerais (V$CON_SYSMETRIC)
 --   GET  /stats/sessoes          sessões por usuário e status
 --   GET  /stats/sessoes/ativas   o que cada sessão ativa está fazendo
 --   GET  /stats/bloqueios        quem bloqueia quem

@@ -208,7 +208,8 @@ CREATE OR REPLACE PACKAGE BODY pkg_carga AS
         WHEN 'CPU' THEN
           -- Cálculo puro em PL/SQL: sessão fica "Em CPU"
           FOR i IN 1 .. 3000000 LOOP
-            v_x := MOD(v_x + i * i, 9973);
+            -- MOD antes de multiplicar: i * i passa de 2^31 (PLS_INTEGER) e dá ORA-01426
+            v_x := MOD(v_x + MOD(i, 9973) * MOD(i, 9973), 9973);
           END LOOP;
           DBMS_SESSION.SLEEP(0.2);
 

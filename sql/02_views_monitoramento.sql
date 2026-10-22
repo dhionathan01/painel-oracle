@@ -32,7 +32,9 @@ CROSS  JOIN v$database d;
 
 -- ---------------------------------------------------------------------
 -- Resumo numérico para os cards (1 linha)
--- Fontes: V$SESSION (contagens) e V$SYSMETRIC (taxas do último minuto)
+-- Fontes: V$SESSION (contagens) e V$CON_SYSMETRIC (taxas do último minuto)
+-- No 26ai, V$SYSMETRIC vem vazia dentro do PDB; V$CON_SYSMETRIC traz as
+-- métricas do PDB atual (grupo 18 = médias de 60 s).
 -- A própria sessão que consulta é excluída para não "sujar" o número
 -- de sessões ativas.
 -- ---------------------------------------------------------------------
@@ -52,39 +54,44 @@ SELECT (SELECT COUNT(*)
         AND    blocking_session IS NOT NULL
         AND    event LIKE 'enq:%')                              AS sessoes_bloqueadas,
        (SELECT ROUND(MAX(value), 2)
-        FROM   v$sysmetric
-        WHERE  group_id = 2
+        FROM   v$con_sysmetric
+        WHERE  group_id = 18
         AND    metric_name = 'Average Active Sessions')         AS aas,
+       -- % das CPUs que o Oracle pode usar (cpu_count; no Free o teto é 2).
+       -- 'CPU Usage Per Sec' vem em centésimos de segundo por segundo.
+       (SELECT ROUND(LEAST(100, MAX(m.value) / MAX(p.cpus)), 1)
+        FROM   v$con_sysmetric m
+        CROSS  JOIN (SELECT TO_NUMBER(value) AS cpus
+                     FROM   v$parameter
+                     WHERE  name = 'cpu_count') p
+        WHERE  m.group_id = 18
+        AND    m.metric_name = 'CPU Usage Per Sec')               AS host_cpu_pct,
        (SELECT ROUND(MAX(value), 1)
-        FROM   v$sysmetric
-        WHERE  group_id = 2
-        AND    metric_name = 'Host CPU Utilization (%)')        AS host_cpu_pct,
-       (SELECT ROUND(MAX(value), 1)
-        FROM   v$sysmetric
-        WHERE  group_id = 2
+        FROM   v$con_sysmetric
+        WHERE  group_id = 18
         AND    metric_name = 'Executions Per Sec')              AS execucoes_seg,
        (SELECT ROUND(MAX(value), 2)
-        FROM   v$sysmetric
-        WHERE  group_id = 2
+        FROM   v$con_sysmetric
+        WHERE  group_id = 18
         AND    metric_name = 'User Transaction Per Sec')        AS transacoes_seg,
        TO_CHAR(SYSDATE, 'DD/MM/YYYY HH24:MI:SS')                AS medido_em
 FROM   dual;
 
 -- ---------------------------------------------------------------------
 -- Estatísticas gerais do sistema (lista)
--- Fonte: V$SYSMETRIC, grupo 2 = médias do último intervalo de 60 s
+-- Fonte: V$CON_SYSMETRIC, grupo 18 = médias do último intervalo de 60 s
+-- (métricas do PDB atual)
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE VIEW vw_metricas_sistema AS
 SELECT metric_name                    AS metrica,
        ROUND(MAX(value), 2)           AS valor,
        metric_unit                    AS unidade,
        TO_CHAR(MAX(end_time), 'HH24:MI:SS') AS medido_ate
-FROM   v$sysmetric
-WHERE  group_id = 2
+FROM   v$con_sysmetric
+WHERE  group_id = 18
 AND    metric_name IN ('Average Active Sessions',
                        'Database Time Per Sec',
                        'CPU Usage Per Sec',
-                       'Host CPU Utilization (%)',
                        'Executions Per Sec',
                        'User Transaction Per Sec',
                        'User Commits Per Sec',
@@ -122,7 +129,8 @@ SELECT s.sid,
        s.username                                          AS usuario,
        s.machine                                           AS maquina,
        s.program                                           AS programa,
-       s.module                                            AS modulo,
+       -- MODULE/ACTION vêm do DBMS_APPLICATION_INFO (a carga usa CARGA_LAB / tipo)
+       s.module || NVL2(s.action, ' / ' || s.action, NULL)     AS modulo,
        s.sql_id,
        CASE WHEN s.state = 'WAITING' THEN s.event      ELSE 'Em CPU' END AS atividade,
        CASE WHEN s.state = 'WAITING' THEN s.wait_class ELSE 'CPU'    END AS classe,
@@ -144,14 +152,14 @@ FETCH  FIRST 20 ROWS ONLY;
 CREATE OR REPLACE VIEW vw_bloqueios AS
 SELECT w.sid                          AS sid_bloqueada,
        w.username                     AS usuario_bloqueado,
-       w.module                       AS modulo_bloqueado,
+       w.module || NVL2(w.action, ' / ' || w.action, NULL) AS modulo_bloqueado,
        w.event                        AS evento,
        w.last_call_et                 AS segundos_esperando,
        w.sql_id                       AS sql_bloqueado,
        b.sid                          AS sid_bloqueador,
        b.serial#                      AS serial_bloqueador,
        b.username                     AS usuario_bloqueador,
-       b.module                       AS modulo_bloqueador,
+       b.module || NVL2(b.action, ' / ' || b.action, NULL) AS modulo_bloqueador,
        b.status                       AS status_bloqueador,
        NVL(b.sql_id, b.prev_sql_id)   AS sql_bloqueador
 FROM   v$session w

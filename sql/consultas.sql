@@ -74,10 +74,12 @@ JOIN   dba_tablespaces t ON t.tablespace_name = m.tablespace_name
 ORDER  BY m.used_percent DESC;
 
 -- 8) Estatísticas gerais (último minuto) --------------------------------
+-- No PDB do 26ai a V$SYSMETRIC vem vazia: use V$CON_SYSMETRIC (grupo 18).
+-- Conectado no CDB$ROOT, a V$SYSMETRIC (grupo 2) volta a funcionar.
 SELECT metric_name, ROUND(value, 2) AS valor, metric_unit
-FROM   v$sysmetric
-WHERE  group_id = 2
-AND    metric_name IN ('Average Active Sessions', 'Host CPU Utilization (%)',
+FROM   v$con_sysmetric
+WHERE  group_id = 18
+AND    metric_name IN ('Average Active Sessions', 'CPU Usage Per Sec',
                        'Executions Per Sec', 'User Transaction Per Sec',
                        'Buffer Cache Hit Ratio')
 ORDER  BY metric_name;

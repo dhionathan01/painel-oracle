@@ -19,11 +19,15 @@ Para cada bloco do painel: a view do Oracle de origem, como o número é calcula
 | Sessões de usuário | `COUNT(*) FROM V$SESSION WHERE TYPE='USER'` | Conexões abertas. Inclui as ociosas, como o pool do ORDS. |
 | Ativas agora | idem + `STATUS='ACTIVE'` | Sessões executando algo neste instante. É o melhor termômetro de "carga agora". |
 | Bloqueadas | `BLOCKING_SESSION IS NOT NULL AND EVENT LIKE 'enq:%'` | Sessões paradas esperando lock de outra. Deveria ser **0**. Se for maior que zero, o card fica vermelho e aparece o alerta. |
-| Sessões ativas médias (AAS) | `V$SYSMETRIC` → `Average Active Sessions` | Média de sessões ativas no último minuto (DB time ÷ tempo real). Compare com o número de CPUs: o Oracle Free usa até 2 threads, então AAS acima de 2 indica fila. |
-| CPU do host | `V$SYSMETRIC` → `Host CPU Utilization (%)` | Uso de CPU da máquina (container). Acima de 85% em amarelo/vermelho. |
-| Execuções/s | `V$SYSMETRIC` → `Executions Per Sec` | Quantos comandos SQL por segundo. Mede o volume de trabalho. |
+| Sessões ativas médias (AAS) | `V$CON_SYSMETRIC` → `Average Active Sessions` | Média de sessões ativas no último minuto (DB time ÷ tempo real). Compare com o número de CPUs: o Oracle Free usa até 2 threads, então AAS acima de 2 indica fila. |
+| CPU do banco | `V$CON_SYSMETRIC` → `CPU Usage Per Sec` ÷ `cpu_count` | % das CPUs que o Oracle pode usar (no Free, `cpu_count` = 2). `CPU Usage Per Sec` vem em centésimos de segundo por segundo, então 200 = 2 CPUs cheias = 100%. Acima de 70% fica amarelo e acima de 85% vermelho. |
+| Execuções/s | `V$CON_SYSMETRIC` → `Executions Per Sec` | Quantos comandos SQL por segundo. Mede o volume de trabalho. |
 
 Todos os cards vêm de uma única view, `VW_RESUMO`. A sessão que faz a consulta (o próprio painel) é excluída das contagens.
+
+> **Por que `V$CON_SYSMETRIC` e não `V$SYSMETRIC`?** No Oracle AI Database 26ai, consultada de dentro de um PDB, a `V$SYSMETRIC` volta **vazia**. As métricas do PDB ficam em `V$CON_SYSMETRIC` (grupo 18, médias de 60 s). A métrica `Host CPU Utilization (%)` só existe no CDB root, por isso o card mostra a CPU **do banco** e não a do host.
+
+> **Atraso de até 1 minuto:** AAS, CPU e Execuções/s são médias que o Oracle recalcula a cada 60 s. Ao iniciar a carga, as sessões ativas sobem na hora, mas esses três cards só sobem na virada do minuto seguinte.
 
 ## Linha do tempo
 
@@ -51,14 +55,15 @@ Eventos que costumam aparecer:
 | `db file scattered read` / `direct path read` | User I/O | Leitura de vários blocos, típica de full table scan. |
 | `log file sync` | Commit | O COMMIT esperando o LGWR gravar o redo em disco. |
 | `latch` / `library cache` | Concurrency | Disputa por estruturas de memória. |
+| `PL/SQL lock timer` | Idle | A sessão está num `DBMS_SESSION.SLEEP` (pausa proposital da carga). Aparece em "Sessões ativas", mas não em "Esperas agora", porque é da classe Idle. |
 
 ## Sessões ativas agora
 
-`V$SESSION`: SID, usuário, `MODULE` (a carga marca `CONSULTA`, `CPU`, `LOCK_DONO`, `LOCK_FILA` via `DBMS_APPLICATION_INFO.SET_MODULE`), atividade (evento ou "Em CPU"), `LAST_CALL_ET` (segundos desde o início da chamada atual) e `SQL_ID`.
+`V$SESSION`: SID, usuário, módulo (`MODULE / ACTION`: a carga marca `CARGA_LAB / CONSULTA`, `CARGA_LAB / CPU`, `CARGA_LAB / LOCK_DONO` e `CARGA_LAB / LOCK_FILA` via `DBMS_APPLICATION_INFO.SET_MODULE(module, action)`), atividade (evento ou "Em CPU"), `LAST_CALL_ET` (segundos desde o início da chamada atual) e `SQL_ID`.
 
 ## Bloqueios
 
-Auto-join em `V$SESSION`: a sessão bloqueada (`w`) aponta para a bloqueadora pela coluna `BLOCKING_SESSION` (`b.sid = w.blocking_session`). Para resolver: o bloqueador dá COMMIT/ROLLBACK, ou o DBA executa `ALTER SYSTEM KILL SESSION 'sid,serial#' IMMEDIATE`.
+Auto-join em `V$SESSION`: a sessão bloqueada (`w`) aponta para a bloqueadora pela coluna `BLOCKING_SESSION` (`b.sid = w.blocking_session`). Na carga, o bloqueio "pisca": o `LOCK_DONO` segura a linha por 10 s, faz COMMIT, descansa 4 s e pega o lock de novo. É normal o card Bloqueadas alternar entre 2 e 0. Para resolver: o bloqueador dá COMMIT/ROLLBACK, ou o DBA executa `ALTER SYSTEM KILL SESSION 'sid,serial#' IMMEDIATE`.
 
 ## SQLs mais custosos
 
@@ -80,9 +85,10 @@ Ao clicar no SQL_ID, o painel mostra o comando para ver o plano: `SELECT * FROM 
 
 ## Estatísticas gerais
 
-`V$SYSMETRIC`, grupo 2 (médias de 60 s calculadas pelo próprio Oracle). Destaques:
+`V$CON_SYSMETRIC`, grupo 18 (médias de 60 s calculadas pelo próprio Oracle, só do PDB atual). Destaques:
 
 - **Database Time Per Sec**: centésimos de segundo de DB time por segundo. ÷100 ≈ AAS.
+- **CPU Usage Per Sec**: centésimos de segundo de CPU por segundo. ÷100 = quantas CPUs inteiras o banco está usando.
 - **Database Wait Time Ratio / CPU Time Ratio**: quanto do DB time foi espera × CPU. Muita espera indica gargalo fora da CPU (I/O, lock).
 - **Buffer Cache Hit Ratio**: % de leituras atendidas pela memória. É um indicador clássico, mas sozinho não prova nada.
 - **Logons Per Sec**: muitos logons por segundo indicam aplicação sem pool de conexões.
@@ -101,3 +107,7 @@ Ao clicar no SQL_ID, o painel mostra o comando para ver o plano: `SELECT * FROM 
 - **LOCK_FILA**: o mesmo UPDATE na mesma linha, então fica bloqueado com `enq: TX - row lock contention`.
 
 Cada tipo roda num job do `DBMS_SCHEDULER` (uma sessão cada) até o tempo acabar ou alguém chamar `PKG_CARGA.PARAR`.
+
+O Oracle Free vem com `job_queue_processes = 4` (no máximo 4 jobs ao mesmo tempo), o que não cabe a carga MEDIA nem a PESADA. Por isso o script 01 sobe esse valor para 20, no CDB root e no PDB.
+
+Medido na carga **MEDIA** (Oracle 26ai Free, 2 CPUs): 8 sessões ativas, 2 bloqueadas (alternando), AAS de ~3 e CPU do banco de ~75% depois de 1 a 2 minutos. No Top SQL, o `UPDATE` do `LOCK_FILA` apareceu com ~117 s de tempo total e 0,03 s de CPU.

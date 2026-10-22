@@ -66,7 +66,7 @@ def rota(caminho, query):
         return {"status": "UP", "horario_banco": datetime.now().strftime("%d/%m/%Y %H:%M:%S"), "container": "FREEPDB1"}
     if caminho == "/stats/instancia":
         return {
-            "instancia": "FREE", "host": "a1b2c3d4e5f6", "versao": "23.26.0.0.0",
+            "instancia": "FREE", "host": "a1b2c3d4e5f6", "versao": "23.26.3.0.0",
             "status_instancia": "OPEN", "status_banco": "ACTIVE",
             "iniciada_em": INICIO.strftime("%d/%m/%Y %H:%M:%S"),
             "uptime_horas": round((datetime.now() - INICIO).total_seconds() / 3600, 1),
@@ -79,7 +79,7 @@ def rota(caminho, query):
         nomes = [("Average Active Sessions", "Active Sessions"), ("Buffer Cache Hit Ratio", "% (LogRead - PhyRead)/LogRead"),
                  ("CPU Usage Per Sec", "CentiSeconds Per Second"), ("Database CPU Time Ratio", "% Cpu/DB_Time"),
                  ("Database Time Per Sec", "CentiSeconds Per Second"), ("Database Wait Time Ratio", "% Wait/DB_Time"),
-                 ("Executions Per Sec", "Executes Per Second"), ("Host CPU Utilization (%)", "% Busy/(Idle+Busy)"),
+                 ("Executions Per Sec", "Executes Per Second"),
                  ("Logical Reads Per Sec", "Reads Per Second"), ("Logons Per Sec", "Logons Per Second"),
                  ("Physical Reads Per Sec", "Reads Per Second"), ("User Commits Per Sec", "Commits Per Second"),
                  ("User Transaction Per Sec", "Transactions Per Second")]
@@ -97,22 +97,22 @@ def rota(caminho, query):
             return lista([])
         return lista([
             {"sid": 45, "serial": 3121, "usuario": "CARGA_LAB", "maquina": "a1b2c3", "programa": "oracle@a1b2c3 (J002)",
-             "modulo": "LOCK_FILA", "sql_id": "8x2kz0p1q9w3m", "atividade": "enq: TX - row lock contention",
+             "modulo": "CARGA_LAB / LOCK_FILA", "sql_id": "8x2kz0p1q9w3m", "atividade": "enq: TX - row lock contention",
              "classe": "Application", "segundos_ativa": random.randint(1, 10), "bloqueada_por": 61},
             {"sid": 52, "serial": 1877, "usuario": "CARGA_LAB", "maquina": "a1b2c3", "programa": "oracle@a1b2c3 (J004)",
-             "modulo": "CONSULTA", "sql_id": "4kq7dbn2r5s8t", "atividade": "Em CPU", "classe": "CPU",
+             "modulo": "CARGA_LAB / CONSULTA", "sql_id": "4kq7dbn2r5s8t", "atividade": "Em CPU", "classe": "CPU",
              "segundos_ativa": random.randint(0, 3), "bloqueada_por": None},
             {"sid": 58, "serial": 902, "usuario": "CARGA_LAB", "maquina": "a1b2c3", "programa": "oracle@a1b2c3 (J005)",
-             "modulo": "CPU", "sql_id": None, "atividade": "Em CPU", "classe": "CPU",
+             "modulo": "CARGA_LAB / CPU", "sql_id": None, "atividade": "Em CPU", "classe": "CPU",
              "segundos_ativa": random.randint(0, 2), "bloqueada_por": None},
         ])
     if caminho == "/stats/bloqueios":
         if not rodando:
             return lista([])
-        return lista([{"sid_bloqueada": 45, "usuario_bloqueado": "CARGA_LAB", "modulo_bloqueado": "LOCK_FILA",
+        return lista([{"sid_bloqueada": 45, "usuario_bloqueado": "CARGA_LAB", "modulo_bloqueado": "CARGA_LAB / LOCK_FILA",
                        "evento": "enq: TX - row lock contention", "segundos_esperando": random.randint(1, 10),
                        "sql_bloqueado": "8x2kz0p1q9w3m", "sid_bloqueador": 61, "serial_bloqueador": 4410,
-                       "usuario_bloqueador": "CARGA_LAB", "modulo_bloqueador": "LOCK_DONO",
+                       "usuario_bloqueador": "CARGA_LAB", "modulo_bloqueador": "CARGA_LAB / LOCK_DONO",
                        "status_bloqueador": "ACTIVE", "sql_bloqueador": "1m2n3b4v5c6x7"}])
     if caminho == "/stats/waits/agora":
         if not rodando:

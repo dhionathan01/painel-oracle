@@ -257,7 +257,7 @@ function renderMetricas(dados) {
     { campo: 'metrica', titulo: 'Métrica' },
     { campo: 'valor', titulo: 'Valor', tipo: 'num' },
     { campo: 'unidade', titulo: 'Unidade', render: (l) => `<small>${esc(l.unidade)}</small>` },
-  ], 'V$SYSMETRIC ainda sem dados (aguarde 1 minuto após o startup).');
+  ], 'V$CON_SYSMETRIC ainda sem dados (aguarde 1 minuto após o startup).');
 }
 
 function renderCarga(c) {

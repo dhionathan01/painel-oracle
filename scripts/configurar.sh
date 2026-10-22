@@ -9,6 +9,7 @@
 set -euo pipefail
 
 DB_CONTAINER="${DB_CONTAINER:-painel-oracle-db}"
+ORDS_CONTAINER="${ORDS_CONTAINER:-painel-oracle-ords}"
 ORACLE_PWD="${ORACLE_PWD:-OraclePwd123}"
 ORDS_URL="${ORDS_URL:-http://localhost:8181}"
 PDB="//localhost:1521/FREEPDB1"
@@ -41,6 +42,17 @@ done
 echo " ok"
 
 rodar_sql "painel_mon/PainelMon123@${PDB}"     05_ords_modulo.sql
+
+# O ORDS 26.x não serve o doc_root sem essa configuração explícita
+echo
+echo "==> Configurando o doc_root do ORDS (painel em /painel/)..."
+docker exec "${ORDS_CONTAINER}" ords --config /etc/ords/config config set \
+  standalone.doc.root /etc/ords/config/global/standalone/doc_root
+docker restart "${ORDS_CONTAINER}" > /dev/null
+until [ "$(curl -s -o /dev/null -w '%{http_code}' "${ORDS_URL}/painel/index.html")" = "200" ]; do
+  printf '.'; sleep 5
+done
+echo " ok"
 
 echo
 echo "==> Teste da API:"

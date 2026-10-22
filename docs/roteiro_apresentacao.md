@@ -1,6 +1,8 @@
 # Roteiro da apresentação (~12 min)
 
-> Antes da aula: suba o ambiente (`docker compose up -d`), rode `scripts/configurar.sh`, abra o painel e deixe aberto **há pelo menos 5 minutos** para a linha do tempo ter pontos. Deixe também o DBeaver conectado como `SYSTEM` e, em outra aba, o arquivo `sql/02_views_monitoramento.sql`.
+> Estude antes o [`guia_de_estudo.md`](guia_de_estudo.md): conceitos, leitura de cada bloco e perguntas prováveis com respostas.
+>
+> Antes da aula: suba o ambiente (`docker compose up -d`), rode `scripts\configurar.ps1` (Windows) ou `scripts/configurar.sh`, abra o painel e deixe aberto **há pelo menos 5 minutos** para a linha do tempo ter pontos. Deixe também o DBeaver conectado como `SYSTEM` e, em outra aba, o arquivo `sql/02_views_monitoramento.sql`.
 
 ## 1. Problema e proposta (1 min)
 
@@ -29,10 +31,10 @@ Abrir no navegador: `http://localhost:8181/ords/painel/monitor/stats/resumo` e m
 
 1. Perfil **Média**, 3 min, e clicar em **Gerar carga**.
 2. Na próxima atualização:
-   - **Ativas agora** sobe para 6 a 8, e o AAS sobe em seguida.
-   - **Sessões ativas**: módulos `CONSULTA`, `CPU`, `LOCK_FILA`.
+   - **Ativas agora** sobe para 8 na hora. AAS e CPU do banco só sobem na virada do minuto (são médias de 60 s): espere de 1 a 2 minutos até o AAS passar de 2 (medido: ~3) e a CPU chegar a ~75%.
+   - **Sessões ativas**: módulos `CARGA_LAB / CONSULTA`, `CARGA_LAB / CPU`, `CARGA_LAB / LOCK_DONO` e `CARGA_LAB / LOCK_FILA`. `PL/SQL lock timer` é a pausa proposital da carga (`DBMS_SESSION.SLEEP`).
    - **Esperas agora**: "Em CPU" e `enq: TX - row lock contention`.
-   - **Alerta vermelho de bloqueio**: abrir o bloco Bloqueios e mostrar que `LOCK_FILA` espera `LOCK_DONO`.
+   - **Alerta vermelho de bloqueio**: abrir o bloco Bloqueios e mostrar que `LOCK_FILA` espera `LOCK_DONO`. O alerta "pisca" (some por ~4 s a cada ciclo) porque o dono faz COMMIT e pega o lock de novo. Se perguntarem, isso é proposital.
    - **Top SQL**: o `SELECT ... GROUP BY` da `VENDAS` com muitas leituras lógicas, e o `UPDATE` com tempo total alto mas CPU quase zero (só esperando lock). Clicar no SQL_ID.
 3. **Linha do tempo**: mostrar a subida.
 4. (Opcional) No DBeaver como SYSTEM, rodar a consulta 4 de `consultas.sql` e matar o bloqueador com `ALTER SYSTEM KILL SESSION`. O alerta some.

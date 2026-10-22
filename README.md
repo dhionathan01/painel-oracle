@@ -4,12 +4,12 @@ Trabalho final · Grupo 1 · Oracle ADM — MBA em Engenharia de Dados (PUC Mina
 
 > **Integrantes:** _preencher_
 
-Dashboard simples que mostra, em tempo quase real, o estado de um Oracle Free 23ai: instância, sessões, esperas, bloqueios, SQLs mais custosos e uso de tablespaces. Os dados saem das views administrativas do Oracle, viram API REST no **ORDS** e aparecem num painel HTML que se atualiza sozinho.
+Dashboard simples que mostra, em tempo quase real, o estado de um Oracle AI Database 26ai Free: instância, sessões, esperas, bloqueios, SQLs mais custosos e uso de tablespaces. Os dados saem das views administrativas do Oracle, viram API REST no **ORDS** e aparecem num painel HTML que se atualiza sozinho.
 
 ```text
-Oracle Free 23ai (FREEPDB1)
+Oracle AI Database 26ai Free (FREEPDB1)
   ├─ V$INSTANCE, V$DATABASE, V$SESSION, V$SYSTEM_EVENT,
-  │  V$SQLAREA, V$SYSMETRIC, DBA_TABLESPACE_USAGE_METRICS
+  │  V$SQLAREA, V$CON_SYSMETRIC, DBA_TABLESPACE_USAGE_METRICS
   │        │
   │        ▼
   ├─ views VW_* no schema PAINEL_MON  ──►  job DBMS_SCHEDULER (15 s) ──► METRICAS_HIST
@@ -39,7 +39,7 @@ Oracle Free 23ai (FREEPDB1)
 painel-oracle/
 ├── README.md
 ├── docker/
-│   ├── compose.yaml            Oracle Free 23ai + ORDS
+│   ├── compose.yaml            Oracle 26ai Free 23.26.3.0 + ORDS 26.3.0 (versões travadas)
 │   └── .env.example            senhas/portas (opcional)
 ├── sql/
 │   ├── 01_usuarios_e_grants.sql    SYS      → cria PAINEL_MON e CARGA_LAB + grants nas V$
@@ -53,12 +53,25 @@ painel-oracle/
 │   ├── style.css
 │   └── app.js
 ├── scripts/
-│   ├── configurar.sh           roda os SQL 01→05 na ordem
+│   ├── configurar.sh           roda os SQL 01→05 na ordem (macOS/Linux/Git Bash)
+│   ├── configurar.ps1          o mesmo, para Windows (PowerShell)
 │   └── mock_ords.py            API falsa para mexer no visual sem Oracle
 └── docs/
+    ├── guia_de_estudo.md       COMECE AQUI: objetivo, cada bloco da tela, perguntas do professor
     ├── metricas.md             o que cada métrica significa e de onde vem
     └── roteiro_apresentacao.md
 ```
+
+> **Vai apresentar?** Leia primeiro [`docs/guia_de_estudo.md`](docs/guia_de_estudo.md): o objetivo, o que cada bloco da tela mostra, os conceitos e as perguntas prováveis do professor, com as respostas.
+
+## Versões (travadas)
+
+| Componente | Imagem | Por que travar |
+| --- | --- | --- |
+| Banco | `container-registry.oracle.com/database/free:23.26.3.0` (Oracle AI Database 26ai Free) | A tag `latest` muda sem aviso. |
+| ORDS | `container-registry.oracle.com/database/ords:26.3.0` | O ORDS 26.x passou a exigir `ORACLE_USER_PWD` e o `standalone.doc.root`. Com `latest`, o projeto quebrou da noite para o dia. |
+
+Para atualizar, troque as duas tags no `docker/compose.yaml` juntas e refaça o teste ponta a ponta.
 
 ## Pré-requisitos
 
@@ -77,7 +90,7 @@ docker compose up -d
 docker compose ps        # espere o "oracle" ficar (healthy)
 ```
 
-A primeira subida demora de 5 a 15 minutos: o Docker baixa as imagens, cria o banco e depois instala o ORDS. Para acompanhar:
+A primeira subida demora de 5 a 15 minutos: o Docker baixa as imagens, cria o banco e depois instala o ORDS. Antes do ORDS roda o serviço `ords-permissoes`, que só acerta o dono da pasta de configuração e sai (aparecer como `Exited (0)` no `docker compose ps -a` é o esperado). Para acompanhar:
 
 ```bash
 docker compose logs -f oracle   # até aparecer DATABASE IS READY TO USE
@@ -92,7 +105,15 @@ docker compose logs -f ords     # até aparecer que o ORDS está escutando na 80
 bash scripts/configurar.sh
 ```
 
-**Windows (PowerShell) ou passo a passo manual:** rode, na ordem:
+**Windows (PowerShell):** da raiz do projeto:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\configurar.ps1
+```
+
+Os dois scripts fazem a mesma coisa: rodam os SQL 01 a 05 na ordem, esperam o ORDS, configuram o `standalone.doc.root` (sem isso o ORDS 26 não serve o painel) e testam o `/health`. Podem ser rodados de novo a qualquer momento, porque o 01 recria tudo do zero.
+
+**Passo a passo manual:** rode, na ordem:
 
 ```bash
 docker exec -it painel-oracle-db sqlplus "sys/OraclePwd123@//localhost:1521/FREEPDB1 as sysdba" @/opt/painel/sql/01_usuarios_e_grants.sql
@@ -101,6 +122,12 @@ docker exec -it painel-oracle-db sqlplus painel_mon/PainelMon123@//localhost:152
 docker exec -it painel-oracle-db sqlplus carga_lab/CargaLab123@//localhost:1521/FREEPDB1 @/opt/painel/sql/04_carga_lab.sql
 # só depois que o ORDS terminou de instalar:
 docker exec -it painel-oracle-db sqlplus painel_mon/PainelMon123@//localhost:1521/FREEPDB1 @/opt/painel/sql/05_ords_modulo.sql
+```
+
+```bash
+# por fim, o doc_root do painel (obrigatório no ORDS 26.x):
+docker exec painel-oracle-ords ords --config /etc/ords/config config set standalone.doc.root /etc/ords/config/global/standalone/doc_root
+docker restart painel-oracle-ords
 ```
 
 (digite `exit` ao final de cada um, se o sqlplus ficar aguardando)
@@ -155,6 +182,8 @@ curl -X POST -H "Content-Type: application/json" \
 
 Os grants nas `V$` são **diretos** e não via role, porque views e procedures só enxergam privilégios concedidos diretamente ao dono.
 
+O script 01 também sobe o `job_queue_processes` para 20 (no CDB root e no PDB). O Free vem com 4, que não cabe a carga de laboratório.
+
 ## Desenvolvendo o visual sem Oracle
 
 ```bash
@@ -169,11 +198,15 @@ Ele responde nos mesmos caminhos e com os mesmos campos do ORDS real, com númer
 | Sintoma | Causa provável / solução |
 | --- | --- |
 | `docker compose up` falha no pull | Rode `docker login container-registry.oracle.com` (conta Oracle gratuita) e tente de novo. |
+| ORDS cai com `Required variable ORACLE_USER_PWD is missing` | Compose antigo, sem a variável. Ela já está no `compose.yaml` (senha do `ORDS_PUBLIC_USER`, padrão `OrdsPublic123`). |
+| ORDS cai com `The Oracle REST Data Services installation has failed` logo após `settings.xml` | A pasta `global/` do volume ficou com dono root. O serviço `ords-permissoes` resolve. Se o volume for antigo, rode `docker compose down -v` e suba de novo. |
 | Script 05 dá `PLS-00201: identifier 'ORDS.ENABLE_SCHEMA'` | O ORDS ainda não terminou de instalar. Espere o log do container `ords` e rode o 05 de novo. |
 | Painel abre, mas um bloco mostra erro | Rode o endpoint no navegador para ver a mensagem. Normalmente é um grant faltando, então rode o script 01 e depois 02 a 05. |
 | `/ords/painel/...` dá 404 | O script 05 não rodou ou deu erro. Rode de novo como `PAINEL_MON`. |
-| `/painel/index.html` dá 404 | O volume da pasta `web` não montou. Rode `docker compose up -d --force-recreate ords`. Alternativa: `cd web && python -m http.server 5500` e abra `http://localhost:5500` (o CORS para essa porta já está liberado). |
-| "Estatísticas gerais" vazia | `V$SYSMETRIC` só tem valores 1 minuto após o startup. |
+| `/painel/index.html` dá 404 | Quase sempre falta o `standalone.doc.root`: rode o `configurar` de novo (ou só os dois comandos do doc_root acima) e dê Ctrl+F5. Se persistir, o volume da pasta `web` não montou: `docker compose up -d --force-recreate ords`. Alternativa: `cd web && python -m http.server 5500` e abra `http://localhost:5500` (o CORS para essa porta já está liberado). |
+| "Estatísticas gerais" vazia ou AAS/CPU com "—" | `V$CON_SYSMETRIC` só tem valores 1 minuto após o startup. Se continuar vazio, confira se as views usam `V$CON_SYSMETRIC` (no 26ai a `V$SYSMETRIC` vem vazia dentro do PDB). |
+| Carga Média/Pesada mostra só 2 a 4 sessões | `job_queue_processes` baixo (o Free vem com 4). O script 01 sobe para 20. Confira com `SHOW PARAMETER job_queue_processes` no root e no PDB. |
+| Script 01 dá `ORA-01940: cannot drop a user who is currently connected` | Versão antiga do 01. A atual trava as contas, apaga os jobs e encerra as sessões antes do `DROP`. |
 | Gráfico sem pontos | O job grava a cada 15 s. Confira com `SELECT job_name, state FROM user_scheduler_jobs;` como `PAINEL_MON`. |
 | Precisa recomeçar do zero | `docker compose down -v` apaga **tudo** (banco e config do ORDS). |
 

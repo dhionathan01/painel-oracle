@@ -13,7 +13,51 @@
 WHENEVER SQLERROR EXIT FAILURE
 SET ECHO ON
 
+-- ---------------------------------------------------------------------
+-- Limite de jobs simultâneos do DBMS_SCHEDULER. O Oracle Free vem com 4,
+-- o que não cabe a carga MEDIA (8 jobs) + PESADA (12) + o job de coleta.
+-- O teto vale para o CDB inteiro, por isso é ajustado no root e no PDB.
+-- ---------------------------------------------------------------------
+ALTER SESSION SET CONTAINER = CDB$ROOT;
+ALTER SYSTEM SET job_queue_processes = 20 SCOPE = BOTH;
+
 ALTER SESSION SET CONTAINER = FREEPDB1;
+ALTER SYSTEM SET job_queue_processes = 20 SCOPE = BOTH;
+
+-- ---------------------------------------------------------------------
+-- Para poder rodar este script de novo: o DROP USER falha (ORA-01940)
+-- se o usuário estiver conectado, e ele fica conectado pelo pool do ORDS,
+-- pelo job de coleta e pelos jobs de carga. Então: trava as contas (nada
+-- novo conecta), apaga os jobs e encerra as sessões que sobraram.
+-- ---------------------------------------------------------------------
+DECLARE
+  v_restantes PLS_INTEGER;
+BEGIN
+  FOR u IN (SELECT username FROM dba_users
+            WHERE  username IN ('PAINEL_MON', 'CARGA_LAB')) LOOP
+    EXECUTE IMMEDIATE 'ALTER USER ' || u.username || ' ACCOUNT LOCK';
+  END LOOP;
+  FOR j IN (SELECT owner, job_name FROM dba_scheduler_jobs
+            WHERE  owner IN ('PAINEL_MON', 'CARGA_LAB')) LOOP
+    DBMS_SCHEDULER.DROP_JOB(j.owner || '.' || j.job_name, force => TRUE);
+  END LOOP;
+  FOR s IN (SELECT sid, serial# AS serial FROM v$session
+            WHERE  username IN ('PAINEL_MON', 'CARGA_LAB')) LOOP
+    BEGIN
+      EXECUTE IMMEDIATE 'ALTER SYSTEM KILL SESSION ''' || s.sid || ',' || s.serial || ''' IMMEDIATE';
+    EXCEPTION
+      WHEN OTHERS THEN NULL;  -- a sessão já tinha terminado
+    END;
+  END LOOP;
+  -- o KILL é assíncrono: espera até 30 s as sessões sumirem
+  FOR i IN 1 .. 30 LOOP
+    SELECT COUNT(*) INTO v_restantes FROM v$session
+    WHERE  username IN ('PAINEL_MON', 'CARGA_LAB');
+    EXIT WHEN v_restantes = 0;
+    DBMS_SESSION.SLEEP(1);
+  END LOOP;
+END;
+/
 
 -- ---------------------------------------------------------------------
 -- PAINEL_MON: dono das views de monitoramento, do histórico e do
@@ -35,7 +79,10 @@ GRANT SELECT ON sys.v_$database                  TO painel_mon;
 GRANT SELECT ON sys.v_$session                   TO painel_mon;
 GRANT SELECT ON sys.v_$system_event              TO painel_mon;
 GRANT SELECT ON sys.v_$sqlarea                   TO painel_mon;
-GRANT SELECT ON sys.v_$sysmetric                 TO painel_mon;
+-- No 26ai, V$SYSMETRIC vem vazia dentro do PDB: as métricas do PDB
+-- ficam em V$CON_SYSMETRIC. V$PARAMETER é só para ler o cpu_count.
+GRANT SELECT ON sys.v_$con_sysmetric             TO painel_mon;
+GRANT SELECT ON sys.v_$parameter                 TO painel_mon;
 GRANT SELECT ON sys.dba_tablespaces              TO painel_mon;
 GRANT SELECT ON sys.dba_tablespace_usage_metrics TO painel_mon;
 
